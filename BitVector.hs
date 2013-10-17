@@ -54,22 +54,14 @@ instance BV SDBitVector where
     access pos = access pos . weak
 
 -- |
--- >>> let a = mkBitVector (take 5000 (cycle [True,True,False]))
+-- >>> let a = mkBitVector (take 5000 (cycle [True,False,False,True,False]))
 -- >>> rank True 0 a
 -- 0
 -- >>> let a' = mkSDBitVector a
--- >>> rank True 97 a'
--- 65
--- >>> select True 65 a'
--- 97
--- >>> rank True 96 a'
--- 64
--- >>> select True 64 a'
--- 96
--- >>> rank True 95 a'
--- 64
--- >>> select True 64 a'
--- 94
+-- >>> [(rank True i a',i) | i <- [61..82]]
+-- [(25,61),(25,62),(25,63),(26,64),(26,65),(27,66),(27,67),(27,68),(28,69),(28,70),(29,71),(29,72),(29,73),(30,74),(30,75),(31,76),(31,77),(31,78),(32,79),(32,80),(33,81),(33,82)]
+-- >>> [select True i a' | i <- [25 .. 33]]
+-- [61,64,66,69,71,74,76,79,81]
 
 instance RSBV BitVector where
     rank True i (BitVector arr) = cnta - cntb
@@ -113,7 +105,8 @@ showBits :: Word64 -> String
 showBits w = [if (w `unsafeShiftR` i) .&. 1 == 0 then '0' else '1' | i <- [0..63]]
 
 calcofs :: Word8 -> Word64 -> Word64
-calcofs 0 word = fromIntegral . head $ [ i | i <- [0..63], (word .&. (-word)) `unsafeShiftR` i == 1 ]
+calcofs 1 0 = 0
+calcofs 1 word = fromIntegral . head $ [ i+1 | i <- [0..63], (word .&. (-word)) `unsafeShiftR` i == 1 ]
 calcofs ofs word = calcofs (ofs-1) $ word .&. complement (word .&. (-word))
 
 mkBitVector :: [Bool] -> BitVector
