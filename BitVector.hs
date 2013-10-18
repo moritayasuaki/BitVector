@@ -14,7 +14,6 @@ import qualified Data.Foldable as F
 
 -- newtype BV = BV {getBV :: STUArray Word64 Word64 }
 
-
 type STBV s = ST s (STUArray s Word64 Word64)
 
 newtype BitVector = BitVector { uarray :: UArray Word64 Word64 }
