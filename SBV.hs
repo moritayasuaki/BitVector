@@ -1,18 +1,21 @@
-{-# LANGUAGE TypeSynonymInstances,OverlappingInstances #-}
+{-# LANGUAGE MultiParamTypeClasses,FunctionalDependencies #-}
 
 module SBV where
 
 import Data.Array.Unboxed
 import Data.Bits
 import Data.Word
+import Numeric
 
 type W64 = Word64
 type BV = UArray W64 W64
 
+infixl 8 .>>.
 (.>>.) :: (Bits a, Integral b) => a -> b -> a
 (.>>.) = \w i -> w `unsafeShiftR` fromIntegral i
 {-# INLINE (.>>.) #-}
 
+infixl 8 .<<.
 (.<<.) :: (Bits a, Integral b) => a -> b -> a
 (.<<.) = \w i -> w `unsafeShiftL` fromIntegral i
 {-# INLINE (.<<.) #-}
@@ -64,6 +67,18 @@ popCnt = \x ->
            in (x2 * 0x0101010101010101) .>>. 56
 {-# INLINE popCnt #-}
 
+
+-- |
+-- >>> showHex (popCntByteCumSum 0x000103070F1F3F7F) ""
+popCntByteCumSum :: W64 -> W64
+popCntByteCumSum = \x ->
+              let s0 = x - ((x .&. 0xAAAAAAAAAAAAAAAAA) .>>. 1)
+                  s1 = (s0 .&. 0x3333333333333333) + ((x .>>. 2) .&. 0x3333333333333333)
+                  s2 = ((s1 + (s1 .>>. 4)) .&. 0x0F0F0F0F0F0F0F0F) * 0x0101010101010101
+              in s2
+{-# INLINE popCntByteCumSum #-}
+
+
 m :: W64 -> W64 -> W64
 m = \s w -> let t = (w .&. 7) - 1 in
               s .>>. (t + ((t .>>. 60) .&. 8)) * 9 .&. 0x1FF
@@ -92,10 +107,10 @@ m = \s w -> let t = (w .&. 7) - 1 in
 -- take 9 bits * 7 block = 63 bits
 
 -- |
--- >>> let list = take 1000 $ cycle [0x0,0x1,0x3,0xF,0xFF,0xFFFF,0xFFFFFFFF,-1] :: [W64]
+-- >>> let list = take 10000 $ cycle [0x0,0x1,0x3,0xF,0xFF,0xFFFF,0xFFFFFFFF,-1] :: [W64]
 -- >>> let a = listUArray list
 -- >>> let b = mkRank9 a
--- >>> showRank9 b
+-- >>> rank True (a,b) 600000
 
 mkRank9 :: BV -> BV
 mkRank9 bv = listUArray (encode blks 0)
@@ -104,8 +119,26 @@ mkRank9 bv = listUArray (encode blks 0)
           encode [] rank = []
           encode (x:xs) rank = 
               rank : fold (scanl1 (+) x) : encode xs (rank + sum x) 
-          fold xs = sum $ zipWith (.<<.) xs [0,9..56]
+          fold xs = sum $ zipWith (.<<.) xs [0,9..54]
 
 showRank9 :: BV -> String
-showRank9 bv = show [(bv ! l, unfold (bv ! s)) | [l,s] <- chunks 2 (indices bv)]
-    where unfold x = map (\i -> (x .>>. i) .&. 0x1FF) [0,9..56]
+showRank9 dic = show [(dic ! l, unfold (dic ! s)) | [l,s] <- chunks 2 (indices dic)]
+    where unfold x = map (\i -> (x .>>. i) .&. 0x1FF) [0,9..54]
+
+access :: BV -> W64 -> Bool
+access bv i = ((bv ! ind) .>>. ofs) .&. 1 /= 0
+    where (ind,ofs) = i `divMod` 64
+
+rank :: Bool -> (BV,BV) -> W64 -> W64
+rank True (bv,dic) i = lrank + srank + ofsrank
+    where (ind,ofs) = i `divMod` 64
+          (lind,sind) = ind `divMod` 8
+          lind' = 2*lind
+          lrank = (dic ! lind')
+          s = dic ! (lind'+1)
+          t = sind - 1 :: W64
+          srank = s .>>. ((t + (t .>>. 60 .&. 8)) * 9) .&. 0x1FF
+          ofsrank = popCnt ((bv ! ind) .<<. (63 - ofs))
+
+
+
