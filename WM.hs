@@ -12,6 +12,7 @@ import Data.Binary
 import Data.Word
 import Prelude as P
 import Data.List as L
+import Numeric
 
 type N = Int
 
@@ -86,7 +87,7 @@ instance RSV (Vector Int) where
 -- 5
 
 rankInt :: Int -> Bool -> Int -> Int
-rankInt x True n = popCount (x .&. ((unsafeShiftL 1 n) - 1))
+rankInt x True n = popCount' (x .&. ((unsafeShiftL 1 n) - 1))
 rankInt x False n = bitW - rankInt x True n
 
 selectInt :: Int -> Bool -> Int -> Int
@@ -96,6 +97,26 @@ selectInt x b n = ans
           cumsum = P.scanl (+) 0 [f `xor` ((x `unsafeShiftR` s) .&. 1) | s <- [0..bitW-1]]
           Just ans = L.findIndex (== n) cumsum
 
+selectInt' :: Int -> Bool -> Int -> Int
+selectInt' s1 True n = t
+    where s2  = (  s1 .&. 0x5555555555555555) +
+                (( s1 .&. 0xAAAAAAAAAAAAAAAA) `unsafeShiftR` 1) -- (2-2) * 32 = 0 space
+          s4  = (  s2 .&. 0x3333333333333333) + 
+                (( s2 .&. 0xCCCCCCCCCCCCCCCC) `unsafeShiftR` 2) -- (4-3) * 16 = 16 space
+          s8  = (  s4 .&. 0x0F0F0F0F0F0F0F0F) + -- 0x0707..  
+                (( s4 .&. 0xF0F0F0F0F0F0F0F0) `unsafeShiftR` 4) -- 0x7070..  -- (8-4) * 8 = 24 space
+          test = (((n - s8) * 0x0101010101010101) `unsafeShiftR` 7) 
+          test2 = test .&. 0x0101010101010101
+
+{-# INLINE selectInt' #-}
+
+-- |
+-- >>> selectInt' 0x0F070301 True <$> [0..10]
+
+expandCumSum8 :: Int -> [Int]
+expandCumSum8 x = [(x `unsafeShiftR` i) .&. 0xFF | i<- [0,8..56]]
+
+-- 64bit Only
 popCumSum8 :: Int -> Int
 popCumSum8 s1 = let s2 = (s1 .&. 0x5555555555555555) +
                          ((s1 .&. 0xAAAAAAAAAAAAAAAA) `unsafeShiftR` 1)
@@ -104,10 +125,11 @@ popCumSum8 s1 = let s2 = (s1 .&. 0x5555555555555555) +
                     s8 = (s4 .&. 0x0F0F0F0F0F0F0F0F) +
                          ((s4 .&. 0xF0F0F0F0F0F0F0F0) `unsafeShiftR` 4)
                     cs8 = s8 * 0x0101010101010101
-                 in cs8
+                 in cs8 
 
 top8 :: Int -> Int
 top8 x = x `unsafeShiftR` (bitW - 8)
+{-# INLINE top8 #-}
 
 -- |
 -- >>> popCount' 0x0103070F
@@ -115,6 +137,20 @@ top8 x = x `unsafeShiftR` (bitW - 8)
 popCount' :: Int -> Int
 popCount' = top8 . popCumSum8
 
+popCumSumFold :: [Int] -> (Int,[Int])
+popCumSumFold xs = (a,bs)
+    where (as,bs) = P.splitAt 8 xs
+          shifts = P.zipWith (\i p -> p `unsafeShiftL` i )  
+                     [0,9 .. 9*6] (P.map popCount' xs)
+          a = P.sum shifts * 0x0040201008040201
 
-main = pure ()
+-- |
+-- >>> let a = fst $ popCumSumFold [0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80]
 
+unfold9bit :: Int -> [Int]
+unfold9bit x = L.unfoldr un x
+    where un 0 = Nothing
+          un x = Just (x .&. 0x1FF,x `unsafeShiftR` 9)
+
+
+main = return ()
