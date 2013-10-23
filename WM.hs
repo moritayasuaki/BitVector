@@ -86,9 +86,14 @@ instance RSV (Vector Int) where
 -- >>> selectInt 0x1F True 5
 -- 5
 
+-- |
+-- >>> rankInt 0xFFFFFFFFFFFFFFFF True 0
+
 rankInt :: Int -> Bool -> Int -> Int
-rankInt x True n = popCount' (x .&. ((unsafeShiftL 1 n) - 1))
-rankInt x False n = bitW - rankInt x True n
+rankInt x True n = popCount' (x .&. m)
+    where m = (-1) `unsafeShiftR` n
+
+rankInt x False n = n - rankInt x True n
 
 selectInt :: Int -> Bool -> Int -> Int
 selectInt x b n = ans
@@ -97,24 +102,36 @@ selectInt x b n = ans
           cumsum = P.scanl (+) 0 [f `xor` ((x `unsafeShiftR` s) .&. 1) | s <- [0..bitW-1]]
           Just ans = L.findIndex (== n) cumsum
 
+
 selectInt' :: Int -> Bool -> Int -> Int
-selectInt' s1 True n = t
+selectInt' s1 True n = test1
     where s2  = (  s1 .&. 0x5555555555555555) +
                 (( s1 .&. 0xAAAAAAAAAAAAAAAA) `unsafeShiftR` 1) -- (2-2) * 32 = 0 space
           s4  = (  s2 .&. 0x3333333333333333) + 
                 (( s2 .&. 0xCCCCCCCCCCCCCCCC) `unsafeShiftR` 2) -- (4-3) * 16 = 16 space
           s8  = (  s4 .&. 0x0F0F0F0F0F0F0F0F) + -- 0x0707..  
                 (( s4 .&. 0xF0F0F0F0F0F0F0F0) `unsafeShiftR` 4) -- 0x7070..  -- (8-4) * 8 = 24 space
-          test = (((n - s8) * 0x0101010101010101) `unsafeShiftR` 7) 
-          test2 = test .&. 0x0101010101010101
-
+          cs8 = s8 * 0x0101010101010101
+          test1 = (n-s8) * 0x0101010101010101 + s8
+          test2 = (test1 .&. 0x8080808080808080)
+          test3 = test2 `unsafeShiftR` (64 - ((test2 `unsafeShiftR` 56) .&. 0xFF) * 8)
 {-# INLINE selectInt' #-}
 
 -- |
--- >>> selectInt' 0x0F070301 True <$> [0..10]
+-- >>> selectByte 0x1 True 1
+selectByte :: Int -> Bool -> Int -> Int
+selectByte b True n = d
+    where d = b * 0x0101010101010101 .&. 0x8040201008040201
+          d' = (d `unsafeShiftR` 7)
+
+-- |
+-- >>> expandCumSum8' . selectInt' 0x10000000F0471201 True <$> [0..14]
+
+expandCumSum8' :: Int -> [Int]
+expandCumSum8' x = P.takeWhile (128>) [x `unsafeShiftR` (i*8) .&. 0xFF | i<- [0..7]]
 
 expandCumSum8 :: Int -> [Int]
-expandCumSum8 x = [(x `unsafeShiftR` i) .&. 0xFF | i<- [0,8..56]]
+expandCumSum8 x = [x `unsafeShiftR` (i*8) .&. 0xFF | i<- [0..7]]
 
 -- 64bit Only
 popCumSum8 :: Int -> Int
@@ -152,5 +169,7 @@ unfold9bit x = L.unfoldr un x
     where un 0 = Nothing
           un x = Just (x .&. 0x1FF,x `unsafeShiftR` 9)
 
-
+-- |
+-- >>> let f k m = k*m + 2^(m-1)
+-- >>> flip f 5 `fmap` [0..5]
 main = return ()
