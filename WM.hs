@@ -103,7 +103,7 @@ selectInt x b n = ans
           cumsum = P.scanl (+) 0 [f `xor` ((x `unsafeShiftR` s) .&. 1) | s <- [0..bitW-1]]
           Just ans = L.findIndex (== n) cumsum
 
-
+-- OK
 selectInt' :: Int -> Bool -> Int -> Int
 selectInt' s1 True n = test1
     where s2  = (  s1 .&. 0x5555555555555555) +
