@@ -4,7 +4,7 @@
 import Control.Applicative
 import Control.Lens
 import Data.Vector.Unboxed.Mutable as MV
-import Data.Vector.Unboxed as V
+import Data.Vector.Unboxed as V hiding (mempty)
 import Data.Vector.Lens
 import Data.Bits
 import Data.Bits.Lens
@@ -12,6 +12,7 @@ import Data.Binary
 import Data.Word
 import Prelude as P
 import Data.List as L
+import Data.Monoid as Mon
 import Numeric
 
 type N = Int
@@ -147,6 +148,22 @@ popCumSum8 s1 = let s2 = (s1 .&. 0x5555555555555555) +
 top8 :: Int -> Int
 top8 x = x `unsafeShiftR` (bitW - 8)
 {-# INLINE top8 #-}
+
+-- |
+-- >>> reify $ showBit  0x03F566ED27179461
+showBit = showIntAtBase 2 conv
+    where conv 0 = '0'
+          conv 1 = '1'
+
+
+-- |
+-- >>> codes . 
+codes :: [Word64]
+codes = [(2 ^ 23) `mod` 0xC75]
+
+
+reify :: Monoid a => (a -> a) -> a
+reify = ($ mempty)
 
 -- |
 -- >>> popCount' 0x0103070F
