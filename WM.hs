@@ -20,6 +20,12 @@ type N = Int
 bitW :: Int
 bitW = bitSize (-1::Int)
 
+(.>>.) :: Int -> Int -> Int
+x .>>. n = fromIntegral (fromIntegral x `unsafeShiftR` fromIntegral n :: Word64)
+
+(.<<.) :: Int -> Int -> Int
+x .<<. n = fromIntegral (fromIntegral x `unsafeShiftL` fromIntegral n :: Word64)
+
 -- |
 -- A[0..k)
 -- rank(v,q,i) = |{ j | A[j] = q, j ∈ [0..i) }|
@@ -43,13 +49,13 @@ newtype BInt = BInt { btoi :: Int }
 instance RSV BInt where
     type E BInt = Bool
     size (BInt b) = bitW
-    access (BInt b) i = (b .&. (1 `unsafeShiftL` i)) == 1
+    access (BInt b) i = (b .&. (1 .<<. i)) == 1
     rank = rankInt . btoi
     select = selectInt . btoi
 
 
 -- |
--- >>> rank (fromList [0x1F,0x30] :: Vector Int) True 69
+-- >>> rank (fromList [0x1F,0x30] :: Vector Int) True 64
 -- 6
 
 -- |
@@ -88,11 +94,12 @@ instance RSV (Vector Int) where
 -- 5
 
 -- |
--- >>> rankInt 0xFFFFFFFFFFFFFFFF True 0
+-- >>> rankInt (-1) True 3
+-- 3
 
 rankInt :: Int -> Bool -> Int -> Int
-rankInt x True n = popCount' (x .&. m)
-    where m = (-1) `unsafeShiftR` n
+rankInt x True n = popCount (x .&. m)
+    where m = complement 0 .>>. (64 - n)
 
 rankInt x False n = n - rankInt x True n
 
@@ -100,53 +107,51 @@ selectInt :: Int -> Bool -> Int -> Int
 selectInt x b n = ans
     where f = if b then 0 else 1
           cumsum :: [Int]
-          cumsum = P.scanl (+) 0 [f `xor` ((x `unsafeShiftR` s) .&. 1) | s <- [0..bitW-1]]
+          cumsum = P.scanl (+) 0 [f `xor` ((x .>>. s) .&. 1) | s <- [0..bitW-1]]
           Just ans = L.findIndex (== n) cumsum
 
--- OK
 selectInt' :: Int -> Bool -> Int -> Int
 selectInt' s1 True n = test2
     where s2  = (  s1 .&. 0x5555555555555555) +
-                (( s1 .&. 0xAAAAAAAAAAAAAAAA) `unsafeShiftR` 1) -- (2-2) * 32 = 0 space
+                (( s1 .&. 0xAAAAAAAAAAAAAAAA) .>>. 1) -- (2-2) * 32 = 0 space
           s4  = (  s2 .&. 0x3333333333333333) + 
-                (( s2 .&. 0xCCCCCCCCCCCCCCCC) `unsafeShiftR` 2) -- (4-3) * 16 = 16 space
+                (( s2 .&. 0xCCCCCCCCCCCCCCCC) .>>. 2) -- (4-3) * 16 = 16 space
           s8  = (  s4 .&. 0x0F0F0F0F0F0F0F0F) + -- 0x0707..  
-                (( s4 .&. 0xF0F0F0F0F0F0F0F0) `unsafeShiftR` 4) -- 0x7070..  -- (8-4) * 8 = 24 space
-          cs8 = s8 * 0x0101010101010101
+                (( s4 .&. 0xF0F0F0F0F0F0F0F0) .>>. 4) -- 0x7070..  -- (8-4) * 8 = 24 space
           test1 = (n-s8) * 0x0101010101010101 + s8
           test2 = (test1 .&. 0x8080808080808080)
-          test3 = test2 `unsafeShiftR` (64 - ((test2 `unsafeShiftR` 56) .&. 0xFF) * 8)
+          test3 = test2 .>>. (64 - ((test2 .>>. 56) .&. 0xFF) * 8)
 {-# INLINE selectInt' #-}
 
 -- |
--- >>> selectByte 0x1 True 1
+-- >>> selectByte 0x2 True 1
 selectByte :: Int -> Bool -> Int -> Int
 selectByte b True n = d
     where d = b * 0x0101010101010101 .&. 0x8040201008040201
-          d' = (d `unsafeShiftR` 7)
+          d' = (d .<<. 7)
 
 -- |
 -- >>> expandCumSum8' . selectInt' 0x10000000F0471201 True <$> [0..14]
 
 expandCumSum8' :: Int -> [Int]
-expandCumSum8' x = P.takeWhile (128>) [x `unsafeShiftR` (i*8) .&. 0xFF | i<- [0..7]]
+expandCumSum8' x = P.takeWhile (128>) [x .>>. (i*8) .&. 0xFF | i<- [0..7]]
 
 expandCumSum8 :: Int -> [Int]
-expandCumSum8 x = [x `unsafeShiftR` (i*8) .&. 0xFF | i<- [0..7]]
+expandCumSum8 x = [(x .>>. (i*8)) .&. 0xFF | i<- [0..7]]
 
 -- 64bit Only
 popCumSum8 :: Int -> Int
 popCumSum8 s1 = let s2 = (s1 .&. 0x5555555555555555) +
-                         ((s1 .&. 0xAAAAAAAAAAAAAAAA) `unsafeShiftR` 1)
+                         ((s1 .&. 0xAAAAAAAAAAAAAAAA) .>>. 1)
                     s4 = (s2 .&. 0x3333333333333333) + 
-                         ((s2 .&. 0xCCCCCCCCCCCCCCCC) `unsafeShiftR` 2)
+                         ((s2 .&. 0xCCCCCCCCCCCCCCCC) .>>. 2)
                     s8 = (s4 .&. 0x0F0F0F0F0F0F0F0F) +
-                         ((s4 .&. 0xF0F0F0F0F0F0F0F0) `unsafeShiftR` 4)
+                         ((s4 .&. 0xF0F0F0F0F0F0F0F0) .>>. 4)
                     cs8 = s8 * 0x0101010101010101
                  in cs8 
 
 top8 :: Int -> Int
-top8 x = x `unsafeShiftR` (bitW - 8)
+top8 x = x .>>. (bitW - 8)
 {-# INLINE top8 #-}
 
 -- |
@@ -165,16 +170,15 @@ codes = [(2 ^ 23) `mod` 0xC75]
 reify :: Monoid a => (a -> a) -> a
 reify = ($ mempty)
 
--- |
--- >>> popCount' 0x0103070F
--- 10
+-- >>> popCount' 0xFF7F3F1F0F070301
+-- 36
 popCount' :: Int -> Int
 popCount' = top8 . popCumSum8
 
 popCumSumFold :: [Int] -> (Int,[Int])
 popCumSumFold xs = (a,bs)
     where (as,bs) = P.splitAt 8 xs
-          shifts = P.zipWith (\i p -> p `unsafeShiftL` i )  
+          shifts = P.zipWith (\i p -> p .<<. i )  
                      [0,9 .. 9*6] (P.map popCount' xs)
           a = P.sum shifts * 0x0040201008040201
 
@@ -184,9 +188,6 @@ popCumSumFold xs = (a,bs)
 unfold9bit :: Int -> [Int]
 unfold9bit x = L.unfoldr un x
     where un 0 = Nothing
-          un x = Just (x .&. 0x1FF,x `unsafeShiftR` 9)
+          un x = Just (x .&. 0x1FF,x .>>. 9)
 
--- |
--- >>> let f k m = k*m + 2^(m-1)
--- >>> flip f 5 `fmap` [0..5]
 main = return ()
